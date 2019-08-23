@@ -11,50 +11,74 @@ library(plotly)
 library(ggplot2)
 # (1) same covariance matrix 
 # generate test noise sphere data
-gtest_data <- function(ntest=50, nlabels=2, p=2, mus, Sigmas, axes, 
-                       eigvals, noise=1, tau=Inf, thick=0.5){
+gtest_data <- function(nlabels=2, p=2, data, mus, Sigmas, axes, 
+                       eigvals, noise=1, tau=Inf, thick=0.2){
   # generate noise datatest 
-  datatest <- matrix(0, ncol=p+1, nrow=nlabels*ntest)
+  ntest.by.label <- as.integer(nrow(data)/nlabels)
+  datatest <- matrix(0, ncol=p+1, nrow=nlabels*ntest.by.label)
+  
+  # max size confidence intervall ellipse 
+  zelp <- qchisq(1-1e-2, p)
+  col_idx_label <- p+1
   
   # generate noise data for root class center (0, 0)
   gnoise_data <- function(label, osign, mu, Sigma){
+    # Generating testdata without any perturbation
+    z <- subset(data, data[, col_idx_label] == label)[, -col_idx_label]
+    # shift distance to closer or faraway
     mv.shift <- NULL
     for(i in 1:p) {
-      min.eig <-  (noise)*sqrt(eigvals[label, i])
-      max.eig <- (noise+thick)*sqrt(eigvals[label, i])
-      mv.shift <- cbind(mv.shift, 0.5*runif(ntest,min.eig, max.eig))
+      .eigval <- sqrt(eigvals[label, i]*zelp) # middle of axis value
+      min.eig <- if(noise==0) 0 else (noise)*.eigval
+      max.eig <- if(noise==0) 0 else (noise+thick)*.eigval
+      mv.shift <- cbind(mv.shift, rep(runif(1, min.eig, max.eig), ntest.by.label))
     }
-    tmus <- t(replicate(ntest, mu)) + osign*mv.shift
-    S <- if(tau == Inf) Sigma else rWishart(n=1, df=tau*p, Sigma=Sigma)[,,1]
-    z <- t(apply(tmus, MARGIN=1, FUN=mvrnorm, n=1, Sigma=S))
+    # noise dispersion wishart random covariance
+    if(tau != Inf){
+      S <- rWishart(n=1, df=tau*p, Sigma=Sigma)[,,1]
+      mv.shift <- t(apply(mv.shift, MARGIN=1, FUN=mvrnorm, n=1, Sigma=S))
+    }
+    # puttin noise information to testing data
+    z <- z + osign*mv.shift
     cbind(z, label)
   }
   naxes <- (1:nlabels)[-1]
   if(length(naxes) == 1){
-    osign <- axes[replicate(ntest, naxes), ]    
+    osign <- axes[replicate(ntest.by.label, naxes), ]    
   }else{
-    osign <- axes[sample(naxes, ntest, replace = T), ]
+    osign <- axes[sample(naxes, ntest.by.label, replace = T), ]
   }
-  datatest[1:ntest, ] <- gnoise_data(1, osign, mu=mus[1, ], Sigma=Sigmas[, , 1]) # root label simulation
+  # root label simulation
+  datatest[1:ntest.by.label, ] <- gnoise_data(1, osign, mu=mus[1, ], Sigma=Sigmas[, , 1]) 
   
   # generate noise data for other class amongts center class
   for(i in 2:nlabels){
     translate.mu <- mus[1, ] - mus[i,]
-    osign <- t(replicate(ntest, translate.mu/abs(translate.mu)))
-    datatest[(ntest*(i-1)+1):(ntest*i), ] <- gnoise_data(i, osign, mus[i, ], Sigmas[, , i])
+    osign <- t(replicate(ntest.by.label, translate.mu/abs(translate.mu)))
+    datatest[(ntest.by.label*(i-1)+1):(ntest.by.label*i), ] <- 
+      gnoise_data(i, osign, mus[i, ], Sigmas[, , i])
   }
   datatest
 }
 
 # generate perfect separting sphere data
-gperf_separating_sphere_data <- function(ntrain = 200, eigv.large = 1e-1, dseparating=4.1,
-                                         p = 2, nlabels=2, homoscestic=T, sphere=T){
+# d_sep_level distance separating level
+# ntrain number training data by label
+gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2, 
+                                         eigv.large = 1e-1, 
+                                         d_sep_level=1-1e-2,
+                                         homoscestic=T, 
+                                         sphere=T,
+                                         pct_test=0.2){
   g_covariance <- function(){
     H <- qr.Q(qr(matrix(rnorm(p^2), p)))
     eigvalues <- if(sphere) rep(runif(1, max=eigv.large), p) else runif(p, max=eigv.large)
     Sigma <- crossprod(H, H*eigvalues)  
     list('eigvals'=eigvalues, "Sigma"=Sigma)
   }
+  
+  # size confidence intervall ellipse 
+  zelp <- qchisq(d_sep_level, p)
   
   # first dataset configuration
   gcov <- g_covariance()
@@ -70,31 +94,63 @@ gperf_separating_sphere_data <- function(ntrain = 200, eigv.large = 1e-1, dsepar
   lbaxes <- matrix(0, ncol=p, nrow=nrow(axes))
   
   # create dataset and save first root label
-  x <- mvrnorm(ntrain, mu=mu[1, ], Sigma = Sigma) 
-  dataset <- matrix(0, ncol=p+1, nrow=nlabels*ntrain)
-  dataset[1:ntrain, ] <- cbind(x, 1)
+  x <- mvrnorm(ndata.by.label, mu=mu[1, ], Sigma = Sigma) 
+  dataset <- matrix(0, ncol=p+1, nrow=nlabels*ndata.by.label)
+  dataset[1:ndata.by.label, ] <- cbind(x, 1)
   for(i in 1:(nlabels-1)){
      osign <- axes[position[i],]
      lbaxes[i+1, ] <- osign
      if(!homoscestic) {
        gcov <- g_covariance()
-       eigvals <- gcov$eigvals 
+       eigvals[i, ] <- gcov$eigvals 
        Sigma <- gcov$Sigma
        Sigmas[, , i+1] <- Sigma
-       mv.shift <- (dseparating/2)*sqrt(eigvals.orig) + (dseparating/2)*sqrt(eigvals)
+       mv.shift <- 0.5*sqrt(eigvals.orig*zelp) + 0.5*sqrt(eigvals[i, ]*zelp)
      }else{
-       mv.shift <- dseparating*sqrt(eigvals.orig)
+       mv.shift <- 2*sqrt(eigvals.orig*zelp) # 2-times diameter axes ellipse
      }
      tmu <- mu[1,] + osign*mv.shift
      mu[i+1, ] <- t(tmu)
-     z <- mvrnorm(ntrain, mu=tmu, Sigma = Sigma)
-     dataset[(ntrain*i+1):(ntrain*(i+1)), ] <- cbind(z, i+1)
+     z <- mvrnorm(ndata.by.label, mu=tmu, Sigma = Sigma)
+     dataset[(ndata.by.label*i+1):(ndata.by.label*(i+1)), ] <- cbind(z, i+1)
   }
-  return(list("data"=dataset, "mus"=mu, "Sigmas"=Sigmas, "axes"=lbaxes, "eigvals"=eigvals))
+  
+  # split training data and testing data (randomly)
+  col_idx_label <- p+1
+  datatest <- matrix(0, ncol=p+1, nrow=nlabels*ndata.by.label*pct_test)
+  ntest.by.label <- ndata.by.label*pct_test
+  .test.idxs  <- NULL
+  for(label in 1:nlabels){
+   .label_idx <- which(dataset[,col_idx_label]==label)
+   .ind_idx <- sample(.label_idx, ntest.by.label)
+   datatest[(ntest.by.label*(label-1)+1):(ntest.by.label*label), ] <- dataset[.ind_idx,]
+   .test.idxs <- c(.test.idxs, .ind_idx)
+  }
+  datatrain <- dataset[-.test.idxs,]
+  
+  # create and putting feacture and label names to datasets (training and testing)
+  name_feactures <- paste('X', 1:p, sep='')
+  name_label <- "y"
+  col_names <- c(name_feactures, name_label)
+  colnames(dataset) <- col_names
+  colnames(datatest) <- col_names
+  colnames(datatrain) <- col_names
+  
+  return(
+    list(
+      "data" = dataset,
+      "train" = datatrain, 
+      "test" = datatest,
+      "mus" = mu,
+      "Sigmas" = Sigmas,
+      "axes" = lbaxes,
+      "eigvals" = eigvals
+    )
+  )
 }
 
 # plot data in 2-dimension or 3-dimension 
-plot_classification <- function(data, nbylabel, nlabels, p){
+plot_classification <- function(data, p){
   g <- NULL
   if(p==2){
     colnames(data) <- c("x1", "x2", "y")
@@ -133,78 +189,48 @@ plot_testing_data2d <- function(gplot, data){
   g
 }
 
-##################Synthectic Datasets#################
-# generation 1-dataset - SEPARATING MIXING
-set.seed(708)
-dataset.one <- gperf_separating_sphere_data(p=2, nlabels = 3, dseparating=2, ntrain = 40)
-g <- plot_classification(dataset.one$data, nbylabel=Ntrain, nlabels=3, p=2)
-# generation testing data with corruption data (gamma)
-datatest <- list()
-for(i in 1:4){
-  set.seed(3020)
-  .testing <- gtest_data(ntest=10, nlabels=3, p=2, mus=dataset.one$mus, 
-                         Sigmas=dataset.one$Sigmas, axes=dataset.one$axes, 
-                         eigvals=dataset.one$eigvals, noise=0)
-  datatest[[i]] <- .testing
+
+# calculate eigen sample values
+compute_eigenvalue_from_sample <- function(data){
+  labels <- unique(data[, ncol(data)])
+  for(label in labels){
+    .temp <- which(data[, ncol(data)] == label)
+    print(paste("Label(", label, "): ", 
+                eigen(cov(data[.temp, -ncol(data)]))$values, sep = ""))
+  }
 }
-plot_testing_data2d(g, datatest[[1]])
-plot_testing_data2d(g, datatest[[2]])
-plot_testing_data2d(g, datatest[[3]])
-plot_testing_data2d(g, datatest[[4]])
 
-save(dataset.one, datatest, file="conf_data_synthetic_01.RData")
+# create file csv 
+create_file_csv <- function(data, name){
+  write.table(data, 
+              sep=',',
+              file=name, 
+              col.names=F, 
+              row.names = FALSE)
+}
 
-# generation 1-dataset - SEPARATING PERFECT 
-
-
-
-# generation testing data with corruption data (tau)
-set.seed(307)
-datatest.one <- gtest_data(nlabels=3, p=2, mus=dataset.one$mus, Sigmas=dataset.one$Sigmas, 
-                           axes=dataset.one$axes, eigvals=dataset.one$eigvals, noise=0.5, tau=10)
-plot_testing_data2d(g, datatest.one)
-
-
-# generation 2-dataset
-set.seed(3279865)
-dataset.two <- gperf_separating_sphere_data(p=2, nlabels = 3, eigv.large = 100, dseparating=2,
-                                            ntrain = Ntrain, homoscestic = F)
-plot_classification(dataset.two$data, nbylabel=Ntrain, nlabels=3, p=2)
-# generation 3-dataset
-set.seed(9269014)
-dataset.three <- gperf_separating_sphere_data(p=3, nlabels = 5, eigv.large = 100, dseparating=2,
-                                          ntrain = Ntrain, homoscestic = F)
-plot_classification(dataset.two$data, nbylabel=Ntrain, nlabels=3, p=2)
-
-
-# model 
-data.train <- data.frame(x1=data[,1], x2=data[,2], y=data[,3])
-lda.model <- lda(y~., data = data.train)
-test.predict <- predict(lda.model, newdata=data.frame(x1=testx1[,1], x2=testx1[,2]))
-
-
-# Empirical experiments for imprecise distribution marginal 
-n = 10
-n1 = 0.5
-n2 = 0.2
-c = seq(0, 2, length.out = 20)
-maxx <- matrix(-1, nrow = 20, ncol = 4)
-maxx[,2] <- -n2 - c/n
-maxx[,3] <- n1 - c/n - 1
-maxx[,4] <- n1 - c/n - n2 - c/n
-plot(c, maxx[,1], type='l', ylim=c(min(maxx), max(maxx)))
-lines(c, maxx[,2])
-lines(c, maxx[,3], col="blue")
-lines(c, maxx[,4], col='red')
-
-p1 <- 0.5
-p2 <- 0.5
-maxx <- matrix(-p2, nrow = 20, ncol = 4)
-maxx[,2] <- p2*(-n2 - c/n)
-maxx[,3] <- p1*(n1 - c/n) - p2
-maxx[,4] <- p1*(n1 - c/n) - p2*(n2 + c/n)
-plot(c, maxx[,1], type='l', ylim=c(min(maxx), max(maxx)))
-lines(c, maxx[,2])
-lines(c, maxx[,3], col="blue")
-lines(c, maxx[,4], col='red')
+# get optimal ell parameter in average
+get_ell_mean_optimal <- function(datafile='results_iris.csv') {
+  read_data <- function(file_path){
+    read.csv(file_path, sep=",", 
+             header=FALSE, 
+             colClasses = c('numeric', 'numeric', 'numeric', 'numeric'))
+  }
+  data <- read_data(datafile)
+  idx_remove <- which(data[,1]== -9999)
+  if(length(idx_remove) >0) data <- data[-idx_remove,]
+  k_fold <- sum(data[,1]== -999)
+  data_ells <- data[-which(data[,1]== -999), -2]
+  data_ells[, 1] <- round(data_ells[, 1], 2)
+  keys <- unique(data_ells[,1])
+  .ellmeans <- unlist(lapply(keys, function(key) colMeans(data_ells[data_ells[,1]==key, ])))
+  .ellsd <- lapply(keys, function(key) apply(data_ells[data_ells[,1]==key, -1], 2, sd))
+  sd_data <- matrix(unlist(.ellsd), ncol = 2, byrow=T)
+  mean_data <- matrix(.ellmeans, ncol=3, byrow = T)
+  ell65_mean_opt <- mean_data[which(max(mean_data[, 2])==mean_data[, 2]), 1]
+  ell80_mean_opt <- mean_data[which(max(mean_data[, 3])==mean_data[, 3]), 1]
+  print(paste("ELL_65_MEAN_OPTIMAL:", ell65_mean_opt, sep=""))
+  print(paste("ELL_80_MEAN_OPTIMAL:", ell80_mean_opt, sep=""))
+  return(as.data.frame(mean_data))
+}
 
