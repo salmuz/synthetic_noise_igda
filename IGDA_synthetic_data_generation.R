@@ -35,7 +35,7 @@ gtest_data <- function(nlabels=2, p=2, data, mus, Sigmas, axes,
     }
     # noise dispersion wishart random covariance
     if(tau != Inf){
-      S <- rWishart(n=1, df=tau*p, Sigma=Sigma)[,,1]
+      S <- rWishart(n=1, df=p + tau, Sigma=Sigma)[,,1]
       mv.shift <- t(apply(mv.shift, MARGIN=1, FUN=mvrnorm, n=1, Sigma=S))
     }
     # puttin noise information to testing data
@@ -89,9 +89,11 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
   # save information
   Sigmas <- array(Sigma, dim=c(p, p, nlabels))
   eigvals <- matrix(eigvals.orig, ncol = p, nrow=nlabels, byrow = T)
-  axes <- as.matrix(expand.grid(rep(list(c(-1,1)), p)))
+  axes <- if(p <= 24) as.matrix(expand.grid(rep(list(c(-1,1)), p))) 
+      #else as.matrix(expand.grid(rep(list(c(-1,1)), 10)))[1:(nlabels+1), ]
+      else matrix(replicate(nlabels, replicate(p, sample(c(-1, 1), 1))), ncol=p, byrow = T)
   position <- sample(1:nrow(axes), nlabels-1)
-  lbaxes <- matrix(0, ncol=p, nrow=nrow(axes))
+  lbaxes <- matrix(0, ncol=p, nrow=nrow(axes)+1)
   
   # create dataset and save first root label
   x <- mvrnorm(ndata.by.label, mu=mu[1, ], Sigma = Sigma) 
@@ -105,7 +107,7 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
        eigvals[i, ] <- gcov$eigvals 
        Sigma <- gcov$Sigma
        Sigmas[, , i+1] <- Sigma
-       mv.shift <- 0.5*sqrt(eigvals.orig*zelp) + 0.5*sqrt(eigvals[i, ]*zelp)
+       mv.shift <- 0.8*sqrt(eigvals.orig*zelp) + 0.8*sqrt(eigvals[i, ]*zelp)
      }else{
        mv.shift <- 2*sqrt(eigvals.orig*zelp) # 2-times diameter axes ellipse
      }
@@ -232,5 +234,13 @@ get_ell_mean_optimal <- function(datafile='results_iris.csv') {
   print(paste("ELL_65_MEAN_OPTIMAL:", ell65_mean_opt, sep=""))
   print(paste("ELL_80_MEAN_OPTIMAL:", ell80_mean_opt, sep=""))
   return(as.data.frame(mean_data))
+}
+
+# plot component of principal component analysis
+plot_component_pca <- function(data, component=c(1,2), label=-1){
+  label <- ifelse(label == -1, ncol(data), label)
+  pp <- prcomp(data[, -label])
+  print(paste("Info. components:", cumsum(pp$sdev^2 / sum(pp$sdev^2)), sep=""))
+  plot(pp$x[, component], col=data[, label])
 }
 

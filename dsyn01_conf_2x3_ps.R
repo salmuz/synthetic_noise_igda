@@ -40,7 +40,7 @@ for(i in 1:n.test.corrupt){
 
 # (2) generation testing data with corruption data (tau)
 corrupt.test.tau <- list()
-noise.tau  <- 1:10
+noise.tau  <- 1:20
 noise.gamma.fixed <- noise.gamma[5]
 set.seed(9919)
 for(i in 1:length(noise.tau)){
@@ -67,6 +67,6 @@ for(i in 1:length(noise.tau)){
 
 ##################Generation configuration#################
 save(dataset, noise.gamma, corrupt.test.gamma, noise.tau, corrupt.test.tau, 
-     file="dsyn01_conf_2x3_mix.RData")
+     file="dsyn01_conf_2x3_ps.RData")
 rm(list = ls())
 
