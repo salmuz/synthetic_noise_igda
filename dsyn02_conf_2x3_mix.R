@@ -2,11 +2,11 @@ source(file='IGDA_synthetic_data_generation.R')
 ##################Generation TRAINING DATA#################
 # generation 2-dataset - MIXING data to 95% confidence interval 
 set.seed(708)
-dataset <- gperf_separating_sphere_data(ndata.by.label = 50, p=2, nlabels = 3, 
-                                            d_sep_level=0.7,
-                                            sphere=F,
-                                            homoscestic=F,
-                                            eigv.large = 1e-1)
+dataset <- gperf_separating_sphere_data(ndata.by.label = 50, p=2, nlabels = 5, 
+                                        d_sep_level=0.6,
+                                        sphere=F,
+                                        homoscestic=F,
+                                        eigv.large = 1e-1)
 gplot <- plot_classification(dataset$train, p=2)
 compute_eigenvalue_from_sample(dataset$train)
 print(dataset$eigvals)
@@ -20,7 +20,7 @@ corrupt.test.gamma <- list()
 noise.gamma  <- seq(0, 1, length.out = n.test.corrupt)
 set.seed(3020)
 for(i in 1:n.test.corrupt){
-  .testing <- gtest_data(nlabels=3, p=2, 
+  .testing <- gtest_data(nlabels=5, p=2, 
                          data=dataset$test, 
                          mus=dataset$mus, 
                          Sigmas=dataset$Sigmas, 
@@ -42,11 +42,11 @@ for(i in 1:n.test.corrupt){
 
 # (2) generation testing data with corruption data (tau)
 corrupt.test.tau <- list()
-noise.tau  <- 1:10
+noise.tau  <- 1:20
 noise.gamma.fixed <- noise.gamma[5]
 set.seed(3420)
 for(i in 1:length(noise.tau)){
-  .testing <- gtest_data(nlabels=3, p=2, 
+  .testing <- gtest_data(nlabels=5, p=2, 
                          data=dataset$test, 
                          mus=dataset$mus, 
                          Sigmas=dataset$Sigmas, 
@@ -69,5 +69,5 @@ for(i in 1:length(noise.tau)){
 
 ##################Generation configuration#################
 save(dataset, noise.gamma, corrupt.test.gamma, noise.tau, corrupt.test.tau, 
-     file="dsyn02_conf_2x3_mix.RData")
+     file="dsyn02_conf_2x5_mix.RData")
 rm(list = ls())
