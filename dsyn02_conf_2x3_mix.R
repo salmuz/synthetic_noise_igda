@@ -12,6 +12,7 @@ compute_eigenvalue_from_sample(dataset$train)
 print(dataset$eigvals)
 plot_testing_data2d(gplot, dataset$test)
 create_file_csv(dataset$train, "dsyn02_train.csv")
+create_file_csv(dataset$data, "dsyn02_all_data.csv")
 
 ##################Generation CORRUPT TEST DATA#################
 # (1) generation testing data with corruption data (gamma)
