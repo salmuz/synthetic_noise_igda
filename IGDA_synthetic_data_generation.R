@@ -72,12 +72,15 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
                                          pct_test=0.2){
   g_covariance <- function(){
     H <- qr.Q(qr(matrix(rnorm(p^2), p)))
-    eigvalues <- if(sphere) rep(runif(1, max=eigv.large), p) else runif(p, max=eigv.large)
+    eigvalues <- if(sphere) rep(runif(1, max=eigv.large), p) 
+        else sort(runif(p, max=eigv.large), decreasing = T)
     Sigma <- crossprod(H, H*eigvalues)  
     list('eigvals'=eigvalues, "Sigma"=Sigma)
   }
   
-  # size confidence intervall ellipse 
+  # size confidence intervall ellipse if covariance is known 
+  # H_0: mu=mu_0 vs H_1: mu/=mu_0 
+  # W = n(bx - mu_0)'SigmaInv(bx - mu_0) ~ ChisQ 
   zelp <- qchisq(d_sep_level, p)
   
   # first dataset configuration
@@ -90,7 +93,6 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
   Sigmas <- array(Sigma, dim=c(p, p, nlabels))
   eigvals <- matrix(eigvals.orig, ncol = p, nrow=nlabels, byrow = T)
   axes <- if(p <= 24) as.matrix(expand.grid(rep(list(c(-1,1)), p))) 
-      #else as.matrix(expand.grid(rep(list(c(-1,1)), 10)))[1:(nlabels+1), ]
       else matrix(replicate(nlabels, replicate(p, sample(c(-1, 1), 1))), ncol=p, byrow = T)
   position <- sample(1:nrow(axes), nlabels-1)
   lbaxes <- matrix(0, ncol=p, nrow=nrow(axes)+1)
@@ -104,12 +106,12 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
      lbaxes[i+1, ] <- osign
      if(!homoscestic) {
        gcov <- g_covariance()
-       eigvals[i, ] <- gcov$eigvals 
+       eigvals[i+1, ] <- gcov$eigvals 
        Sigma <- gcov$Sigma
        Sigmas[, , i+1] <- Sigma
-       mv.shift <- 0.8*sqrt(eigvals.orig*zelp) + 0.8*sqrt(eigvals[i, ]*zelp)
+       mv.shift <- 0.8*sqrt(eigvals.orig*zelp) + 0.8*sqrt(eigvals[i+1, ]*zelp)
      }else{
-       mv.shift <- 2*sqrt(eigvals.orig*zelp) # 2-times diameter axes ellipse
+       mv.shift <- 2*sqrt(eigvals.orig*zelp) # 2-times diameter axes sphere
      }
      tmu <- mu[1,] + osign*mv.shift
      mu[i+1, ] <- t(tmu)
@@ -152,23 +154,43 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
 }
 
 # plot data in 2-dimension or 3-dimension 
-plot_classification <- function(data, p){
+plot_classification <- function(data, p, 
+                                level=0.8, 
+                                covariances=NULL,
+                                means=NULL,
+                                ggpellipse=F, 
+                                def_size=4, 
+                                ylegend=0.2){
   g <- NULL
   if(p==2){
     colnames(data) <- c("x1", "x2", "y")
     data <- as.data.frame(data)
     data$y <- as.factor(data$y)
     g <- ggplot(data, aes(x=x1, y=x2)) + 
-      geom_point(aes(shape=y, color=y, size = 1.5)) +
-      labs( title="", x = 'X1', y = 'X2', color="Labels") +
+      geom_point(aes(shape=y, color=y, size=1.5), size = def_size) +
+      labs(title="", x = 'X1', y = 'X2', color="Labels") +
       guides(shape = FALSE, size=FALSE) + 
-      scale_shape_manual(values = c(1, 2, 3, 8, 13)) +
+      scale_shape_manual(values = c(49, 50, 51, 52, 53, 54, 55)) +
       theme_bw() +
-      theme(legend.position= c(0.1, 0.15), 
-            legend.text=element_text(size=rel(1.2)), 
+      theme(legend.position= c(0.1, ylegend), 
+            legend.text=element_text(size=rel(1.5)), 
             legend.background = element_blank(),
-            axis.title.y=element_text(size=rel(1.1)),
-            axis.title.x=element_text(size=rel(1.2)))
+            axis.title.y=element_text(size=rel(1.5)),
+            axis.title.x=element_text(size=rel(1.5)))
+    if(ggpellipse)
+      g <- g + stat_ellipse(aes(color=y), type = "norm", linetype = 2, level=level)
+    # Create confidence region with true covariance values 
+    if(!is.null(covariances) && !is.null(means)){
+      ellipse_data <- NULL
+      for(i in 1:length(levels(data$y))){
+        .t <- ellipse(covariances[, ,i], level=level, centre = means[i,])
+        ellipse_data <- rbind(ellipse_data, cbind(.t, i))
+      }
+      ellipse_data <- as.data.frame(ellipse_data)
+      colnames(ellipse_data) <- c("xellip", "yellip", "y")
+      ellipse_data$y <- as.factor(ellipse_data$y)
+      g <- g + geom_path(data=ellipse_data, aes(x=xellip, y=yellip, color=y), linetype = 2)
+    }
   }else if(p==3){
     colnames(data) <- c("x1", "x2", "x3", "y")
     data <- as.data.frame(data)
@@ -176,8 +198,6 @@ plot_classification <- function(data, p){
     g <- plot_ly(x=data$x1, y=data$x2, z=data$x3, color=data$y, symbol=data$y,
             symbols = c('circle-open-dot','square-open', 'diamond-open', 
                         'circle-open', 'x'), type="scatter3d", mode="markers")
-    #newdata <- rbind(data, datatest)
-    #plot_ly(x=newdata[, 1], y=newdata[, 2], z=newdata[, 3], color=newdata[, 4])
   }
   return(g)
 }
