@@ -203,11 +203,12 @@ plot_classification <- function(data, p,
 }
 
 # plot testing data noise information
-plot_testing_data2d <- function(gplot, data){
+plot_testing_data2d <- function(gplot, data, def_size = 4){
   colnames(data) <- c("x1", "x2", "y")
   data <- as.data.frame(data)
   data$y <- as.factor(data$y)
-  g <- gplot + geom_point(data=data, aes(x=x1, y=x2, shape=y, size = 1.5), color="black")
+  g <- gplot + geom_point(data=data, aes(x=x1, y=x2, shape=y, size = 1.5),
+                          size = def_size, color="black")
   g
 }
 
@@ -262,5 +263,47 @@ plot_component_pca <- function(data, component=c(1,2), label=-1){
   pp <- prcomp(data[, -label])
   print(paste("Info. components:", cumsum(pp$sdev^2 / sum(pp$sdev^2)), sep=""))
   plot(pp$x[, component], col=data[, label])
+}
+
+# plot boxplot with 10-fold accuracy and percentage testing data  
+plot_pct_testing_data_comparative <- function(root, model){
+  model_pre <- model
+  model_imp <- paste("i", model_pre, sep = "")
+  root_imprecise <- paste(root, "/", model_imp, "/", sep="")
+  root_precise <- paste(root, "_precise/", model_pre, "/", sep="")
+  
+  paths_imprecise <- dir(root_imprecise)
+  paths_precise <- dir(root_precise)
+  .get_mean_u65_u80 <- function(root, in_file, type="ilda"){
+    .d <- read_data(root, in_file)
+    .d <- .d[which(.d[,1] == -999), c(3, 4)]
+    .d <- cbind(type, as.integer(pct), .d)
+    .d
+  }
+  allpct <- NULL
+  for(i in 1:9){
+    pct <- substr(paths[i], 21, 22)
+    .di <- .get_mean_u65_u80(root_imprecise, paths_imprecise[i], model_imp)
+    .dp <- .get_mean_u65_u80(root_precise, paths_precise[i], model_pre)
+    allpct <- rbind(allpct, .di)
+    allpct <- rbind(allpct, .dp)
+  }
+  colnames(allpct) <- c("model", "pct", "u65", "u80")
+  allpct[allpct$u65 > 1, 3] <- 1
+  allpct[allpct$u80 > 1, 4] <- 1
+  allpct$pct <- as.factor(allpct$pct)
+  ggplot(as.data.frame(allpct), aes(x=pct, y=u80, fill=model)) + 
+    geom_boxplot(alpha=0.7, outlier.colour="red", outlier.size=2.5)+
+    labs(title="", x = 'Percentage of testing data', 
+         y = 'Utility-discounted accuracy', fill="Models") +
+    theme_bw() +
+    theme(legend.position= c(0.2, 0.1), legend.direction="horizontal",
+          legend.text =element_text(size=rel(2.5)), 
+          legend.title = element_text(size=rel(2.5)), 
+          legend.background = element_blank(),
+          axis.text.x = element_text(size=rel(2)),
+          axis.text.y = element_text(size=rel(2)),
+          axis.title.y=element_text(size=rel(2)),
+          axis.title.x=element_text(size=rel(2)))
 }
 
