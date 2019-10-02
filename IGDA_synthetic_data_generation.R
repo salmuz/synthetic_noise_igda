@@ -266,7 +266,7 @@ plot_component_pca <- function(data, component=c(1,2), label=-1){
 }
 
 # plot boxplot with 10-fold accuracy and percentage testing data  
-plot_pct_testing_data_comparative <- function(root, model){
+plot_pct_testing_data_comparative <- function(root, model, leg.pos.def=c(0.2, 0.1)){
   model_pre <- model
   model_imp <- paste("i", model_pre, sep = "")
   root_imprecise <- paste(root, "/", model_imp, "/", sep="")
@@ -274,17 +274,28 @@ plot_pct_testing_data_comparative <- function(root, model){
   
   paths_imprecise <- dir(root_imprecise)
   paths_precise <- dir(root_precise)
-  .get_mean_u65_u80 <- function(root, in_file, type="ilda"){
-    .d <- read_data(root, in_file)
+  
+  read_data <- function(root_path, file_name, ncol=3){
+    read.csv(paste(root_path,file_name,sep=""), sep=",", 
+             header=FALSE, colClasses = rep('numeric', ncol))
+  }
+  
+  .get_mean_u65_u80 <- function(root, in_file, type="ilda", pct){
+    .d <- read_data(root, in_file, 4)
     .d <- .d[which(.d[,1] == -999), c(3, 4)]
     .d <- cbind(type, as.integer(pct), .d)
     .d
   }
+  
   allpct <- NULL
-  for(i in 1:9){
-    pct <- substr(paths[i], 21, 22)
-    .di <- .get_mean_u65_u80(root_imprecise, paths_imprecise[i], model_imp)
-    .dp <- .get_mean_u65_u80(root_precise, paths_precise[i], model_pre)
+  for(i in 1:length(paths_imprecise)){
+    .len <- nchar(paths_imprecise[i]) - 8
+    pct <- substr(paths_imprecise[i], .len, .len+1)
+    path_imprecise <- paths_imprecise[grep(pct, paths_imprecise)]
+    path_precise <- paths_precise[grep(pct, paths_precise)]
+    print(paste(path_imprecise, path_precise, sep=" vs "))
+    .di <- .get_mean_u65_u80(root_imprecise, path_imprecise, model_imp, pct)
+    .dp <- .get_mean_u65_u80(root_precise, path_precise, model_pre, pct)
     allpct <- rbind(allpct, .di)
     allpct <- rbind(allpct, .dp)
   }
@@ -292,12 +303,13 @@ plot_pct_testing_data_comparative <- function(root, model){
   allpct[allpct$u65 > 1, 3] <- 1
   allpct[allpct$u80 > 1, 4] <- 1
   allpct$pct <- as.factor(allpct$pct)
+  
   ggplot(as.data.frame(allpct), aes(x=pct, y=u80, fill=model)) + 
     geom_boxplot(alpha=0.7, outlier.colour="red", outlier.size=2.5)+
     labs(title="", x = 'Percentage of testing data', 
          y = 'Utility-discounted accuracy', fill="Models") +
     theme_bw() +
-    theme(legend.position= c(0.2, 0.1), legend.direction="horizontal",
+    theme(legend.position=leg.pos.def, legend.direction="horizontal",
           legend.text =element_text(size=rel(2.5)), 
           legend.title = element_text(size=rel(2.5)), 
           legend.background = element_blank(),
@@ -307,3 +319,53 @@ plot_pct_testing_data_comparative <- function(root, model){
           axis.title.x=element_text(size=rel(2)))
 }
 
+# plotting noise evolution with nrow data 40
+plot_noise_evolution <- function(data, u80=TRUE, method='QDA'){
+  default.mar <- par("mar")
+  idx_u <- ifelse(u80, 4, 3)
+  if(nrow(data) != 40) stop("Not 40 values for plotting")
+  imethod <- paste('I', method, sep="")
+  noise.gamma  <- seq(0, 1, length.out = 20)
+  noise.tau  <- 1:20
+  par(mar=c(4, 4, 1, 1))
+  plot(noise.gamma, data[1:20, idx_u], type='b', col='red', lty=1, pch=2, 
+       yaxt="n", xaxt="n", mgp = c(2.3, 1, 0),
+       xlab='Noise parameter gamma', 
+       ylab='discount-utility', cex.lab=2)
+  lines(noise.gamma, data[1:20, 5], type='b', col='black', lty=3, pch=4)
+  legend("topright", inset=.02, legend = c(imethod, method), 
+         col=c("red", "black"), lty=c(1,3), pch=c(2,4), cex=2.5)
+  axis(1, cex.axis=1.5)
+  axis(2, cex.axis=1.5)
+  
+  plot(noise.tau, data[21:40, idx_u], type='b', col='red', yaxt="n", xaxt="n", mgp = c(2.3, 1, 0), cex.lab=2,
+       xlab='Noise parameter tau', ylab='discount-utility', lty=1)
+  lines(noise.tau, data[21:40, 5], type='b', col='black', lty=3, pch=4)
+  legend("topright", inset=.02, legend = c(imethod, method), 
+         col=c("red", "black"), lty=c(1,3), pch=c(2,4), cex=2.5)
+  axis(1, cex.axis=1.5)
+  axis(2, cex.axis=1.5)
+  par(mar=default.mar)
+}
+
+# Computing the theoric risk bayes 
+calculate_theoric_risk_bayes <- function(data, mus, Sigmas){
+  if(!require("mvtnorm")) stop("If necessary to install rjags package.")
+  X <- data
+  y.obs <- X[,ncol(X)]
+  nb.labels <- nrow(mus)
+  nb.inst <- nrow(X)
+  post.prob <- matrix(0, nrow=nb.inst , ncol=nb.labels)
+  marg.prob <- c(table(y.obs)/nb.inst) # pi_i
+  for (idxlabel in 1:nb.labels){
+    post.prob[, idxlabel] <- marg.prob[idxlabel] *
+      dmvnorm(X[, -3], mean=mus[idxlabel,], sigma = Sigmas[,,idxlabel]) 
+  }
+  y.pred <- max.col(post.prob)
+  risk.bayes <- 1 - sum(diag(table(y.obs, y.pred)))/nb.inst
+  return(list(
+    "risk.bayes" = risk.bayes,
+    "posterior.prob" = post.prob,
+    "y.predition" = y.pred 
+  ))
+}

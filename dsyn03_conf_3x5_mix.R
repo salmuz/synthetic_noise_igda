@@ -61,6 +61,14 @@ for(i in 1:length(noise.tau)){
   create_file_csv(corrupt.test.tau[[i]], paste('dsyn03_test_tau_', i ,'.csv', sep = ""))
 }
 
+################## Computing theoric risk bayes ##############
+rs <- calculate_theoric_risk_bayes(dataset$data, dataset$mus, dataset$Sigmas)
+print(paste("Risque bayes all data:", round(rs$risk.bayes, 2)))
+rs <- calculate_theoric_risk_bayes(dataset$test, dataset$mus, dataset$Sigmas)
+print(paste("Risque bayes testing data:", round(rs$risk.bayes, 2)))
+rs <- calculate_theoric_risk_bayes(dataset$train, dataset$mus, dataset$Sigmas)
+print(paste("Risque bayes training data:", round(rs$risk.bayes, 2)))
+
 ##################Generation configuration#################
 save(dataset, noise.gamma, corrupt.test.gamma, noise.tau, corrupt.test.tau, 
      file="dsyn03_conf_3x5_mix.RData")
