@@ -1,17 +1,38 @@
 # Generation of dataset synthetic
 # IDEAS - Synthetic classification data
 # (1) Perfect separation class in training data with testing corrupted data.
-# (2) Linear separating decision boundary
-# (3) Non-linear separating decision boundary with:
-#  (3.1) Polinomial separating decision boundary
-# (4) Two class each one with probability half of chances
-# (5) Equal and different covariance matrix (homoscedastic and heteroscedastic)
+# (2) Linear/non-linear separating decision boundary
+# (3) Equal and different covariance matrix (homoscedastic and heteroscedastic)
 library(MASS)
 library(plotly)
 library(ggplot2)
-# (1) same covariance matrix 
-# generate test noise sphere data
-gtest_data <- function(nlabels=2, p=2, data, mus, Sigmas, axes, 
+library(gridExtra)
+
+# generate new test noise from a pertubation of original distribution
+gtest_data <- function(nlabels=2, p=2, nb.test, mus, Sigmas, epsilon_mean=0, 
+                       epsilon_sigma=0, sigma_noise=NULL){
+  if(is.null(sigma_noise))
+    sigma_noise = array(data = 0, dim = c(p, p, nlabels))
+  # generate noise datatest 
+  nb.test.by.label <- as.integer(nb.test/nlabels)
+  datatest <- matrix(0, ncol=p+1, nrow=nlabels*nb.test.by.label)
+  
+  # modify the means of each sub-population
+  muc <- colMeans(mus)
+  mus_update <- (1-epsilon_mean)*mus + 
+    epsilon_mean*matrix(rep(muc, nrow(mus)), ncol=p, byrow = T) 
+    
+  # generation de new sampling 
+  for(i in 1:nlabels){
+    Sigmas[,,i]  <- (1-epsilon_sigma)*Sigmas[,,i] + epsilon_sigma*sigma_noise[,,i]
+    x.new <- mvrnorm(nb.test.by.label, mu = mus_update[i, ], Sigma = Sigmas[,,i])
+    datatest[(nb.test.by.label*(i-1)+1):(nb.test.by.label*i), ] <- cbind(x.new, i)
+  }
+  datatest
+}
+
+# generate new test noise from a pertubation of original testing data
+gperturbation_test_data <- function(nlabels=2, p=2, data, mus, Sigmas, axes, 
                        eigvals, noise=1, tau=Inf, thick=0.2){
   # generate noise datatest 
   ntest.by.label <- as.integer(nrow(data)/nlabels)
@@ -64,12 +85,24 @@ gtest_data <- function(nlabels=2, p=2, data, mus, Sigmas, axes,
 # generate perfect separting sphere data
 # d_sep_level distance separating level
 # ntrain number training data by label
-gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2, 
+gperf_separating_sphere_data <- function(ndata.by.label = 200, 
+                                         p = 2, nlabels=2, 
                                          eigv.large = 1e-1, 
                                          d_sep_level=1-1e-2,
                                          homoscestic=T, 
                                          sphere=T,
-                                         pct_test=0.2){
+                                         pct_test=0.2,
+                                         mus=NULL, 
+                                         Sigmas=NULL, 
+                                         eigvals=NULL,
+                                         lbaxes=NULL){
+  
+  if(xor(is.null(mus), is.null(Sigmas)) || 
+     xor(is.null(eigvals), is.null(Sigmas)) ||
+     xor(is.null(eigvals), is.null(mus))){
+    stop("Means and Matrix-Covariance should be supplied together.")  
+  }
+  
   g_covariance <- function(){
     H <- qr.Q(qr(matrix(rnorm(p^2), p)))
     eigvalues <- if(sphere) rep(runif(1, max=eigv.large), p) 
@@ -84,39 +117,57 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
   zelp <- qchisq(d_sep_level, p)
   
   # first dataset configuration
-  gcov <- g_covariance()
-  eigvals.orig <- gcov$eigvals 
-  Sigma <- gcov$Sigma
-  mu <- matrix(0, ncol=p, nrow=nlabels, byrow = T)
+  if(is.null(Sigmas)){
+    gcov <- g_covariance()
+    eigvals.orig <- gcov$eigvals 
+    Sigma <- gcov$Sigma
+  }else{
+    eigvals.orig <- eigvals[1, ]
+  }
   
   # save information
-  Sigmas <- array(Sigma, dim=c(p, p, nlabels))
-  eigvals <- matrix(eigvals.orig, ncol = p, nrow=nlabels, byrow = T)
-  axes <- if(p <= 24) as.matrix(expand.grid(rep(list(c(-1,1)), p))) 
-      else matrix(replicate(nlabels, replicate(p, sample(c(-1, 1), 1))), ncol=p, byrow = T)
-  position <- sample(1:nrow(axes), nlabels-1)
-  lbaxes <- matrix(0, ncol=p, nrow=nrow(axes)+1)
+  is.rec.means.cov <- FALSE
+  if(is.null(mus) && is.null(Sigmas)){
+    mus <- matrix(0, ncol=p, nrow=nlabels, byrow = T)
+    Sigmas <- array(Sigma, dim=c(p, p, nlabels))
+    eigvals <- matrix(eigvals.orig, ncol = p, nrow=nlabels, byrow = T)
+    axes <- if(p <= 24) as.matrix(expand.grid(rep(list(c(-1,1)), p))) 
+    else matrix(replicate(nlabels, replicate(p, sample(c(-1, 1), 1))), ncol=p, byrow = T)
+    position <- sample(1:nrow(axes), nlabels-1)
+    lbaxes <- matrix(0, ncol=p, nrow=nrow(axes)+1)
+  }else{
+    is.rec.means.cov <- TRUE  
+  }
   
   # create dataset and save first root label
-  x <- mvrnorm(ndata.by.label, mu=mu[1, ], Sigma = Sigma) 
+  x <- mvrnorm(ndata.by.label, mu=mus[1, ], Sigma = Sigmas[,,1]) 
   dataset <- matrix(0, ncol=p+1, nrow=nlabels*ndata.by.label)
   dataset[1:ndata.by.label, ] <- cbind(x, 1)
-  for(i in 1:(nlabels-1)){
-     osign <- axes[position[i],]
-     lbaxes[i+1, ] <- osign
-     if(!homoscestic) {
-       gcov <- g_covariance()
-       eigvals[i+1, ] <- gcov$eigvals 
-       Sigma <- gcov$Sigma
-       Sigmas[, , i+1] <- Sigma
-       mv.shift <- 0.8*sqrt(eigvals.orig*zelp) + 0.8*sqrt(eigvals[i+1, ]*zelp)
-     }else{
-       mv.shift <- 2*sqrt(eigvals.orig*zelp) # 2-times diameter axes sphere
-     }
-     tmu <- mu[1,] + osign*mv.shift
-     mu[i+1, ] <- t(tmu)
-     z <- mvrnorm(ndata.by.label, mu=tmu, Sigma = Sigma)
-     dataset[(ndata.by.label*i+1):(ndata.by.label*(i+1)), ] <- cbind(z, i+1)
+  for(i in 1:(nlabels - 1)) {
+    if (!homoscestic) {
+      if (!is.rec.means.cov) {
+        gcov <- g_covariance()
+        eigvals[i + 1,] <- gcov$eigvals
+        Sigma <- gcov$Sigma
+        Sigmas[, , i + 1] <- Sigma
+      }
+      mv.shift <- 0.8 * sqrt(eigvals.orig * zelp) + 0.8 * sqrt(eigvals[i + 1,] * zelp)
+    } else{
+      mv.shift <- 2 * sqrt(eigvals.orig * zelp) # 2-times diameter axes sphere
+    }
+    # recovery the position in the p-dimension
+    if (!is.rec.means.cov) {
+      osign <- axes[position[i], ]
+      lbaxes[i + 1,] <- osign
+    }else{
+      osign <- lbaxes[i + 1,]
+    }
+    # distance shift of main population
+    tmu <- mus[1, ] + osign * mv.shift
+    if (!is.rec.means.cov) mus[i + 1,] <- t(tmu)
+    # generation of sub-population
+    z <- mvrnorm(ndata.by.label, mu = tmu, Sigma = Sigmas[, , i])
+    dataset[(ndata.by.label * i + 1):(ndata.by.label * (i + 1)),] <- cbind(z, i + 1)
   }
   
   # split training data and testing data (randomly)
@@ -130,7 +181,10 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
    datatest[(ntest.by.label*(label-1)+1):(ntest.by.label*label), ] <- dataset[.ind_idx,]
    .test.idxs <- c(.test.idxs, .ind_idx)
   }
-  datatrain <- dataset[-.test.idxs,]
+  if(length(.test.idxs) > 0)
+    datatrain <- dataset[-.test.idxs,]
+  else
+    datatrain <- dataset
   
   # create and putting feacture and label names to datasets (training and testing)
   name_feactures <- paste('X', 1:p, sep='')
@@ -145,7 +199,7 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
       "data" = dataset,
       "train" = datatrain, 
       "test" = datatest,
-      "mus" = mu,
+      "mus" = mus,
       "Sigmas" = Sigmas,
       "axes" = lbaxes,
       "eigvals" = eigvals
@@ -154,7 +208,7 @@ gperf_separating_sphere_data <- function(ndata.by.label = 200, p = 2, nlabels=2,
 }
 
 # plot data in 2-dimension or 3-dimension 
-plot_classification <- function(data, p, 
+plot_classification <- function(data, p=NULL, 
                                 level=0.8, 
                                 covariances=NULL,
                                 means=NULL,
@@ -162,6 +216,7 @@ plot_classification <- function(data, p,
                                 def_size=4, 
                                 ylegend=0.2){
   g <- NULL
+  p <- ifelse(is.null(p), ncol(data)-1, p)
   if(p==2){
     colnames(data) <- c("x1", "x2", "y")
     data <- as.data.frame(data)
@@ -245,11 +300,13 @@ get_ell_mean_optimal <- function(datafile='results_iris.csv') {
   k_fold <- sum(data[,1]== -999)
   data_ells <- data[-which(data[,1]== -999), -2]
   data_ells[, 1] <- round(data_ells[, 1], 2)
-  keys <- unique(data_ells[,1])
+  keys <- sort(unique(data_ells[,1]))
   .ellmeans <- unlist(lapply(keys, function(key) colMeans(data_ells[data_ells[,1]==key, ])))
   .ellsd <- lapply(keys, function(key) apply(data_ells[data_ells[,1]==key, -1], 2, sd))
   sd_data <- matrix(unlist(.ellsd), ncol = 2, byrow=T)
   mean_data <- matrix(.ellmeans, ncol=3, byrow = T)
+  mean_data[mean_data[,2] > 1, 2] <- 1
+  mean_data[mean_data[,3] > 1, 3] <- 1
   ell65_mean_opt <- mean_data[which(max(mean_data[, 2])==mean_data[, 2]), 1]
   ell80_mean_opt <- mean_data[which(max(mean_data[, 3])==mean_data[, 3]), 1]
   print(paste("ELL_65_MEAN_OPTIMAL:", ell65_mean_opt, sep=""))
@@ -350,16 +407,17 @@ plot_noise_evolution <- function(data, u80=TRUE, method='QDA'){
 
 # Computing the theoric risk bayes 
 calculate_theoric_risk_bayes <- function(data, mus, Sigmas){
-  if(!require("mvtnorm")) stop("If necessary to install rjags package.")
-  X <- data
-  y.obs <- X[,ncol(X)]
+  if(!require("mvtnorm")) stop("If necessary to install mvtnorm package.")
+  p <- ncol(data) - 1
+  X <- data[, 1:p]
+  y.obs <- data[, p+1]
   nb.labels <- nrow(mus)
   nb.inst <- nrow(X)
   post.prob <- matrix(0, nrow=nb.inst , ncol=nb.labels)
   marg.prob <- c(table(y.obs)/nb.inst) # pi_i
   for (idxlabel in 1:nb.labels){
-    post.prob[, idxlabel] <- marg.prob[idxlabel] *
-      dmvnorm(X[, -3], mean=mus[idxlabel,], sigma = Sigmas[,,idxlabel]) 
+    post.prob[, idxlabel] <- marg.prob[idxlabel] * 
+      dmvnorm(X, mean=mus[idxlabel,], sigma = Sigmas[,,idxlabel]) 
   }
   y.pred <- max.col(post.prob)
   risk.bayes <- 1 - sum(diag(table(y.obs, y.pred)))/nb.inst
@@ -368,4 +426,87 @@ calculate_theoric_risk_bayes <- function(data, mus, Sigmas){
     "posterior.prob" = post.prob,
     "y.predition" = y.pred 
   ))
+}
+
+# print paper report
+recovery_subdata  <- function(data, size=50, start_idx=17){
+  list_name <- unlist(data[,1])
+  idx_sub_data <- c(NULL)
+  for(i in 1:length(list_name)){
+    name <- list_name[i]
+    if (as.integer(unlist(strsplit(
+      substr(name, start_idx, nchar(as.character(name)) - 4), "_"))[2]) <= size){
+      idx_sub_data <- c(idx_sub_data, i)
+    }
+  }
+  data[idx_sub_data,]
+}
+
+plot_gg <- function(data, .title="", epsilons, start_idx=19){
+  cdata <- ddply(data, "V2",  summarise,
+                 u65_m = mean(V4),
+                 u80_m = mean(V5),
+                 set_m = mean(V6),
+                 acc_m = mean(V7),
+                 N = length(V4),
+                 u65_se = sd(V4) / sqrt(length(V4)),
+                 u80_se = sd(V5) / sqrt(length(V5)),
+                 set_se = sd(V6) / sqrt(length(V6)),
+                 acc_se = sd(V7) / sqrt(length(V7)),
+                 u65_inf = u65_m - 1.96*u65_se,
+                 u65_sup = u65_m + 1.96*u65_se,
+                 u80_inf = u80_m - 1.96*u80_se,
+                 u80_sup = u80_m + 1.96*u80_se,
+                 set_inf = set_m - 1.96*set_se,
+                 set_sup = set_m + 1.96*set_se,
+                 acc_inf = acc_m - 1.96*acc_se,
+                 acc_sup = acc_m + 1.96*acc_se
+  )
+  cdata[,1] <- as.integer(sapply(cdata[,1], 
+                                 function(x) substr(x, start_idx, nchar(as.character(x))-4)))
+  cdata <- cdata[ order(cdata[,1]),]
+  cdata[, 1] <- epsilons[cdata[, 1]]
+  g <- ggplot(cdata, aes(x=V2)) +
+    geom_line(aes(y = u65_m, linetype="u65"), size=1.5) +
+    geom_line(aes(y = u80_m, linetype="u80"), size=1.5) +
+    geom_line(aes(y = acc_m, linetype="acc"), size=1.5) +
+    geom_line(aes(y = set_m, linetype="set"), size=1.5) +
+    geom_ribbon(aes(ymin=u65_inf, ymax=u65_sup, fill="u65"), alpha=0.3) +
+    geom_ribbon(aes(ymin=u80_inf, ymax=u80_sup, fill="u80"), alpha=0.3) +
+    geom_ribbon(aes(ymin=acc_inf, ymax=acc_sup, fill="acc"), alpha=0.3) +
+    geom_ribbon(aes(ymin=set_inf, ymax=set_sup, fill="set"), alpha=0.3) +
+    labs(fill="", linetype="", 
+         axis.text=element_text(size=14), 
+         axis.title=element_text(size=14,face="bold"),
+         x = 'noise parameter', y = 'utility accuracy')+
+    theme_bw() +
+    scale_fill_discrete(guide=FALSE) +
+    theme(legend.position = c(.95, .85), 
+          legend.background = element_blank(), 
+          legend.direction="vertical",
+          legend.justification = c("right", "top"),
+          legend.text=element_text(size=rel(3)),
+          legend.title=element_text(size=rel(3)),
+          axis.title.x=element_text(size=rel(3)),
+          axis.title.y=element_text(size=rel(3)),
+          axis.text=element_text(size=rel(2.5), color = "black"),
+          legend.key.width = unit(3, "cm"),
+          panel.border = element_rect(colour = "black", size = 2, linetype = "solid"))
+  g
+}
+
+plot_all_data <- function(data, size, epsilons, start_idx=19){
+  zepsilons <- length(epsilons)
+  g1 <- plot_gg(data[1:(size*zepsilons), ], 
+                .title="10", epsilons, start_idx)
+  g2 <- plot_gg(data[(size*zepsilons+1):(size*zepsilons*2), ], 
+                .title="25", epsilons, start_idx)
+  g3 <- plot_gg(data[(size*zepsilons*2+1):(size*zepsilons*3), ], 
+                .title="50", epsilons, start_idx)
+  g4 <- plot_gg(data[(size*zepsilons*3+1):(size*zepsilons*4), ], 
+                .title="100", epsilons, start_idx)
+  print(g1)
+  print(g2)
+  print(g3)
+  print(g4)
 }
