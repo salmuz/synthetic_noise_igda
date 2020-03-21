@@ -428,85 +428,98 @@ calculate_theoric_risk_bayes <- function(data, mus, Sigmas){
   ))
 }
 
-# print paper report
-recovery_subdata  <- function(data, size=50, start_idx=17){
-  list_name <- unlist(data[,1])
-  idx_sub_data <- c(NULL)
-  for(i in 1:length(list_name)){
-    name <- list_name[i]
-    if (as.integer(unlist(strsplit(
-      substr(name, start_idx, nchar(as.character(name)) - 4), "_"))[2]) <= size){
-      idx_sub_data <- c(idx_sub_data, i)
+# plot figure for paper
+plot_figures_paper <- function(data, is_noise_sigma=F, nb_repeats = 50){
+  library(plyr)
+  library(dplyr)
+  library(ggplot2)
+
+  recovery_subdata  <- function(data, size=50, start_idx=17){
+    list_name <- unlist(data[,1])
+    idx_sub_data <- c(NULL)
+    for(i in 1:length(list_name)){
+      name <- list_name[i]
+      if (as.integer(unlist(strsplit(
+        substr(name, start_idx, nchar(as.character(name)) - 4), "_"))[2]) <= size){
+        idx_sub_data <- c(idx_sub_data, i)
+      }
     }
+    data[idx_sub_data,]
   }
-  data[idx_sub_data,]
-}
-
-plot_gg <- function(data, .title="", epsilons, start_idx=19){
-  cdata <- ddply(data, "V2",  summarise,
-                 u65_m = mean(V4),
-                 u80_m = mean(V5),
-                 set_m = mean(V6),
-                 acc_m = mean(V7),
-                 N = length(V4),
-                 u65_se = sd(V4) / sqrt(length(V4)),
-                 u80_se = sd(V5) / sqrt(length(V5)),
-                 set_se = sd(V6) / sqrt(length(V6)),
-                 acc_se = sd(V7) / sqrt(length(V7)),
-                 u65_inf = u65_m - 1.96*u65_se,
-                 u65_sup = u65_m + 1.96*u65_se,
-                 u80_inf = u80_m - 1.96*u80_se,
-                 u80_sup = u80_m + 1.96*u80_se,
-                 set_inf = set_m - 1.96*set_se,
-                 set_sup = set_m + 1.96*set_se,
-                 acc_inf = acc_m - 1.96*acc_se,
-                 acc_sup = acc_m + 1.96*acc_se
-  )
-  cdata[,1] <- as.integer(sapply(cdata[,1], 
-                                 function(x) substr(x, start_idx, nchar(as.character(x))-4)))
-  cdata <- cdata[ order(cdata[,1]),]
-  cdata[, 1] <- epsilons[cdata[, 1]]
-  g <- ggplot(cdata, aes(x=V2)) +
-    geom_line(aes(y = u65_m, linetype="u65"), size=1.5) +
-    geom_line(aes(y = u80_m, linetype="u80"), size=1.5) +
-    geom_line(aes(y = acc_m, linetype="acc"), size=1.5) +
-    geom_line(aes(y = set_m, linetype="set"), size=1.5) +
-    geom_ribbon(aes(ymin=u65_inf, ymax=u65_sup, fill="u65"), alpha=0.3) +
-    geom_ribbon(aes(ymin=u80_inf, ymax=u80_sup, fill="u80"), alpha=0.3) +
-    geom_ribbon(aes(ymin=acc_inf, ymax=acc_sup, fill="acc"), alpha=0.3) +
-    geom_ribbon(aes(ymin=set_inf, ymax=set_sup, fill="set"), alpha=0.3) +
-    labs(fill="", linetype="", 
-         axis.text=element_text(size=14), 
-         axis.title=element_text(size=14,face="bold"),
-         x = 'noise parameter', y = 'utility accuracy')+
-    theme_bw() +
-    scale_fill_discrete(guide=FALSE) +
-    theme(legend.position = c(.95, .85), 
-          legend.background = element_blank(), 
-          legend.direction="vertical",
-          legend.justification = c("right", "top"),
-          legend.text=element_text(size=rel(3)),
-          legend.title=element_text(size=rel(3)),
-          axis.title.x=element_text(size=rel(3)),
-          axis.title.y=element_text(size=rel(3)),
-          axis.text=element_text(size=rel(2.5), color = "black"),
-          legend.key.width = unit(3, "cm"),
-          panel.border = element_rect(colour = "black", size = 2, linetype = "solid"))
-  g
-}
-
-plot_all_data <- function(data, size, epsilons, start_idx=19){
-  zepsilons <- length(epsilons)
-  g1 <- plot_gg(data[1:(size*zepsilons), ], 
-                .title="10", epsilons, start_idx)
-  g2 <- plot_gg(data[(size*zepsilons+1):(size*zepsilons*2), ], 
-                .title="25", epsilons, start_idx)
-  g3 <- plot_gg(data[(size*zepsilons*2+1):(size*zepsilons*3), ], 
-                .title="50", epsilons, start_idx)
-  g4 <- plot_gg(data[(size*zepsilons*3+1):(size*zepsilons*4), ], 
-                .title="100", epsilons, start_idx)
-  print(g1)
-  print(g2)
-  print(g3)
-  print(g4)
+  
+  plot_gg <- function(data, .title="", epsilons, start_idx=19){
+    cdata <- ddply(data, "V2",  summarise,
+                   u65_m = mean(V4),
+                   u80_m = mean(V5),
+                   set_m = mean(V6),
+                   acc_m = mean(V7),
+                   N = length(V4),
+                   u65_se = sd(V4) / sqrt(length(V4)),
+                   u80_se = sd(V5) / sqrt(length(V5)),
+                   set_se = sd(V6) / sqrt(length(V6)),
+                   acc_se = sd(V7) / sqrt(length(V7)),
+                   u65_inf = u65_m - 1.96*u65_se,
+                   u65_sup = u65_m + 1.96*u65_se,
+                   u80_inf = u80_m - 1.96*u80_se,
+                   u80_sup = u80_m + 1.96*u80_se,
+                   set_inf = set_m - 1.96*set_se,
+                   set_sup = set_m + 1.96*set_se,
+                   acc_inf = acc_m - 1.96*acc_se,
+                   acc_sup = acc_m + 1.96*acc_se
+    )
+    cdata[,1] <- as.integer(sapply(cdata[,1], 
+                      function(x) substr(x, start_idx, nchar(as.character(x))-4)))
+    cdata <- cdata[ order(cdata[,1]),]
+    cdata[, 1] <- epsilons[cdata[, 1]]
+    g <- ggplot(cdata, aes(x=V2)) +
+      geom_line(aes(y = u65_m, linetype="u65"), size=1.5) +
+      geom_line(aes(y = u80_m, linetype="u80"), size=1.5) +
+      geom_line(aes(y = acc_m, linetype="acc"), size=1.5) +
+      geom_line(aes(y = set_m, linetype="set"), size=1.5) +
+      geom_ribbon(aes(ymin=u65_inf, ymax=u65_sup, fill="u65"), alpha=0.3) +
+      geom_ribbon(aes(ymin=u80_inf, ymax=u80_sup, fill="u80"), alpha=0.3) +
+      geom_ribbon(aes(ymin=acc_inf, ymax=acc_sup, fill="acc"), alpha=0.3) +
+      geom_ribbon(aes(ymin=set_inf, ymax=set_sup, fill="set"), alpha=0.3) +
+      labs(fill="", linetype="", 
+           axis.text=element_text(size=14), 
+           axis.title=element_text(size=14,face="bold"),
+           x = 'noise parameter', y = 'utility accuracy')+
+      theme_bw() +
+      scale_fill_discrete(guide=FALSE) +
+      theme(legend.position = c(.95, .85), 
+            legend.background = element_blank(), 
+            legend.direction="vertical",
+            legend.justification = c("right", "top"),
+            legend.text=element_text(size=rel(3)),
+            legend.title=element_text(size=rel(3)),
+            axis.title.x=element_text(size=rel(3)),
+            axis.title.y=element_text(size=rel(3)),
+            axis.text=element_text(size=rel(2.5), color = "black"),
+            legend.key.width = unit(3, "cm"),
+            panel.border = element_rect(colour = "black", size = 2, linetype = "solid"))
+    g
+  }
+  
+  plot_all_data <- function(data, size, epsilons, start_idx=19){
+    zepsilons <- length(epsilons)
+    g1 <- plot_gg(data[1:(size*zepsilons), ], 
+                  .title="10", epsilons, start_idx)
+    g2 <- plot_gg(data[(size*zepsilons+1):(size*zepsilons*2), ], 
+                  .title="25", epsilons, start_idx)
+    g3 <- plot_gg(data[(size*zepsilons*2+1):(size*zepsilons*3), ], 
+                  .title="50", epsilons, start_idx)
+    g4 <- plot_gg(data[(size*zepsilons*3+1):(size*zepsilons*4), ], 
+                  .title="100", epsilons, start_idx)
+    print(g1)
+    print(g2)
+    print(g3)
+    print(g4)
+  }
+  
+  epsilons <- seq(0, 1, by = 0.02)
+  start_idx <- 18
+  if(is_noise_sigma) start_idx <- 19
+  subdata <- recovery_subdata(data, nb_repeats, start_idx=start_idx)
+  if (!is.null(dev.list())) dev.off()
+  plot_all_data(subdata, nb_repeats, epsilons, start_idx=start_idx)
 }
